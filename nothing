@@ -1,0 +1,23 @@
+let gx = (M + TILE - 1) / TILE;
+let gy = (N + TILE - 1) / TILE;
+pass.dispatch_workgroups(gx, gy, 1);
+
+Rust Side: Parameter Buffer
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct MatMulParams {
+    m: u32,
+    n: u32,
+    k: u32,
+}
+
+let params = MatMulParams { m, n, k };
+
+let param_buffer = device.create_buffer_init(
+    &wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::bytes_of(&params),
+        usage: wgpu::BufferUsages::UNIFORM,
+    },
+);
