@@ -75,8 +75,8 @@ async fn main() {
                          epoch + 1, batch_idx, batches_per_epoch);
 
                 
-                let output = network.test(&inputs_gpu);
-                println!("{:?}", output);
+                /*let output = network.test(&inputs_gpu);
+                println!("{:?}", output);*/
             }
         }
         
@@ -133,10 +133,10 @@ async fn main() {
                  epoch + 1, epoch_duration, accuracy * 100.0, best_accuracy * 100.0);
         
         // Early stopping if accuracy is good
-        /*if accuracy > 0.90 && epoch >= 3 {
+        if accuracy > 0.95 && epoch >= 3 {
             println!("Good accuracy achieved, stopping early.");
             break;
-        }*/
+        }
     }
     
     // Final evaluation
