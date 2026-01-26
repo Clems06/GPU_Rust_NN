@@ -1,31 +1,7 @@
-use crate::tensor::{GpuTensor};
 use rand;
-use wgpu::ComputePipelineDescriptor;
 use wgpu::util::DeviceExt;
-
-fn create_pipeline(
-    device: &wgpu::Device,
-    shader_src: &str,
-    layout: &wgpu::PipelineLayout,
-) -> wgpu::ComputePipeline {
-    let shader = device.create_shader_module(
-        wgpu::ShaderModuleDescriptor {
-            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-            label: None,
-        },
-    );
-
-    device.create_compute_pipeline(
-        &wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(layout),
-            module: &shader,
-            entry_point: Some("main"),
-            cache: None,
-            compilation_options: Default::default()
-        },
-    )
-}
+use crate::tensor::GpuTensor;
+use crate::utils::create_pipeline;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -36,7 +12,8 @@ struct MatVecParams {
     _pad: u32, // padding to 16 bytes
 }
 
-enum NNLayer {
+
+pub enum NNLayer {
     FullyConnectedLayer {
         size: u32,
         prev_size: u32,
@@ -60,7 +37,7 @@ enum NNLayer {
 
 
 impl NNLayer {
-    fn new(device: &wgpu::Device, size: u32, prev_size: u32, batch_size: u32) -> Self {
+    pub fn new(device: &wgpu::Device, size: u32, prev_size: u32, batch_size: u32) -> Self {
         let non_write_storage_binding_type = wgpu::BindingType::Buffer {
                                                             ty: wgpu::BufferBindingType::Storage { read_only: (true) },
                                                             has_dynamic_offset: false,
@@ -185,7 +162,7 @@ impl NNLayer {
         NNLayer::FullyConnectedLayer {size, prev_size, batch_size, params_buffer, activation_pipeline, multiplication_pipeline, z_values, del_z, activation_values, weights, biases, delta_weights, delta_biases, backp_activation_pipeline, backp_multiplication_pipeline, back_p_weight_and_bias_pipeline, apply_gradient_pipeline}
     }
 
-    fn activation_values(&self) -> &GpuTensor {
+    pub fn activation_values(&self) -> &GpuTensor {
         match self {
             NNLayer::FullyConnectedLayer {activation_values, ..} 
             => {
@@ -194,7 +171,7 @@ impl NNLayer {
         }
     }
 
-    fn forward_pass(&self, device: &wgpu::Device, queue: &wgpu::Queue, input: &GpuTensor) -> &GpuTensor {
+    pub fn forward_pass(&self, device: &wgpu::Device, queue: &wgpu::Queue, input: &GpuTensor) -> &GpuTensor {
 
         match self {
             NNLayer::FullyConnectedLayer {size, params_buffer, activation_pipeline, multiplication_pipeline, z_values, activation_values, weights, biases, ..} 
@@ -294,7 +271,7 @@ impl NNLayer {
         
     }
 
-    fn backpropagate(
+    pub fn backpropagate(
         &self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -409,11 +386,6 @@ impl NNLayer {
 
                 queue.submit(Some(encoder.finish()));
 
-                //println!("Bias Gradient {:?}", delta_biases.read_to_cpu(device, queue));
-                //println!("weight Gradient {:?}", delta_biases.read_to_cpu(device, queue));
-                //println!("Del Z {:?}", del_z.read_to_cpu(device, queue));
-                //println!("Weights {:?}", weights.read_to_cpu(device, queue));
-
                 let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
                 let prev_delta_activations = GpuTensor::zeros(prev_size * batch_size, device);
@@ -469,7 +441,7 @@ impl NNLayer {
             }
         }
 
-    fn apply_gradient( &self, device: &wgpu::Device, queue: &wgpu::Queue) {
+    pub fn apply_gradient( &self, device: &wgpu::Device, queue: &wgpu::Queue) {
 
         match self {
             NNLayer::FullyConnectedLayer {
@@ -554,156 +526,4 @@ impl NNLayer {
         
     }
     
-}
-
-pub struct Network {
-    layers: Vec<NNLayer>,
-    batch_size: u32,
-    pub device: wgpu::Device,
-    queue: wgpu::Queue,
-    loss_pipeline: wgpu::ComputePipeline,
-}
-
-impl Network {
-    pub fn new(batch_size: u32, topology: &[u32]) -> anyhow::Result<Self>{
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::PRIMARY,
-            ..Default::default()
-        });
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::HighPerformance,
-                compatible_surface: None,
-                force_fallback_adapter: false,
-            }))?;
-
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                label: None,
-                required_features: wgpu::Features::empty(),
-                experimental_features: wgpu::ExperimentalFeatures::disabled(),
-                required_limits: wgpu::Limits::default(),
-                memory_hints: Default::default(),
-                trace: wgpu::Trace::Off,
-            }))?;
-
-
-        let mut layers = Vec::new();
-        for i in 1..topology.len() {
-            layers.push(NNLayer::new(&device, topology[i as usize], topology[(i-1) as usize], batch_size));
-        }
-
-        let loss_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
-                                                        visibility: wgpu::ShaderStages::COMPUTE,
-                                                        ty: wgpu::BindingType::Buffer {
-                                                            ty: wgpu::BufferBindingType::Storage { read_only: (false) },
-                                                            has_dynamic_offset: false,
-                                                            min_binding_size: None,
-                                                        },
-                                                        count: None,},
-                            wgpu::BindGroupLayoutEntry { binding: 1, 
-                                                        visibility: wgpu::ShaderStages::COMPUTE,
-                                                        ty: wgpu::BindingType::Buffer {
-                                                            ty: wgpu::BufferBindingType::Storage { read_only: (true) },
-                                                            has_dynamic_offset: false,
-                                                            min_binding_size: None,
-                                                        },
-                                                        count: None,}],
-                label: None,});
-        
-        let loss_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                                                                    label: None,
-                                                                    bind_group_layouts: &[&loss_bind_group_layout],
-                                                                    immediate_size: 0,});
-
-        
-        let loss_pipeline = create_pipeline(&device, include_str!("shaders/loss.wgsl"), &loss_layout);
-        
-        Ok(Self{layers, batch_size, device, queue, loss_pipeline})
-    }
-
-    pub fn forward_pass(&self, input: &GpuTensor) -> GpuTensor {
-        let mut value = input;
-        for layer in &self.layers {
-            value = layer.forward_pass(&self.device, &self.queue, value);
-        }
-
-        value.clone()
-
-    }
-
-    pub fn backpropagation(&self, gradient: GpuTensor, input: &GpuTensor) {
-        let mut value = gradient;
-        for i in (1..self.layers.len()).rev() {
-            value = self.layers[i].backpropagate(&self.device, &self.queue, &value, self.layers[i-1].activation_values());
-            self.layers[i].apply_gradient(&self.device, &self.queue);
-        }
-
-        self.layers[0].backpropagate(&self.device, &self.queue, &value, input);
-        self.layers[0].apply_gradient(&self.device, &self.queue);
-    }
-
-
-    pub fn train(&self, input: &GpuTensor, outputs: &GpuTensor) {
-        let result = self.forward_pass(input);
-
-        //println!("Result {:?}", result.read_to_cpu(&self.device, &self.queue));
-
-        let bind_group_layout = self.loss_pipeline.get_bind_group_layout(0);
-
-        let bind_group = self.device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: &bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: result.buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: outputs.buffer.as_entire_binding(),
-                    }
-                ],
-                label: Some("FullyConnectedLayer backpropagation activation pass"),
-            },
-        );
-
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
-
-        {
-            let mut pass: wgpu::ComputePass<'_> = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
-            pass.set_pipeline(&self.loss_pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.dispatch_workgroups(
-                ((result.len + 255) / 256) as u32,
-                1,
-                1,
-            );
-        }
-        
-        self.queue.submit(Some(encoder.finish()));
-
-        //println!("MSE {:?}", result.read_to_cpu(&self.device, &self.queue));
-
-        self.backpropagation(result, input);
-
-    }
-
-    pub fn test(&self, input: &GpuTensor) -> Vec<f32> {
-        let output = self.forward_pass(input);
-        output.read_to_cpu(&self.device, &self.queue)
-    }
-
-    pub fn layer_value(&self, index: usize) -> (Vec<f32>, Vec<f32>) {
-        match &self.layers[index] {
-            NNLayer::FullyConnectedLayer {
-                weights,
-                biases,
-                ..
-            } => {
-                (weights.read_to_cpu(&self.device, &self.queue), biases.read_to_cpu(&self.device, &self.queue))
-            }
-        }
-    }
-
 }

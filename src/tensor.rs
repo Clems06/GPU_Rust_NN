@@ -51,7 +51,7 @@ impl GpuTensor {
         // Map & read
         let buffer_slice = staging.slice(..);
         buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        device.poll(wgpu::PollType::wait_indefinitely());
+        let _ = device.poll(wgpu::PollType::wait_indefinitely());
 
         let data = buffer_slice.get_mapped_range();
         let vec: Vec<f32> = bytemuck::cast_slice(&data).to_vec();

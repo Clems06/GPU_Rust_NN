@@ -1,11 +1,8 @@
-// FILE: ./main.rs
 #![allow(dead_code, unused)]
 
-mod tensor;
-mod network;
+use NeuralNetwork::{activation::{self, ActivationType}, network, tensor};
 mod mnist;
 mod download_mnist;
-
 use std::time::{Instant, Duration};
 
 
@@ -33,11 +30,12 @@ async fn main() {
              mnist_data.test_labels.len() / 10);
     
     // Create network for MNIST (784 inputs, 10 outputs)
-    let batch_size = 32;  // Smaller batch for faster training
-    let topology = [784, 128, 64, 10]; // Input -> Hidden -> Hidden -> Output
+    let batch_size = 32; 
+    let topology = [784, 128, 64, 10];
+    let activations = [ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1)];
     
     println!("Creating network with topology: {:?}", topology);
-    let network = match network::Network::new(batch_size, &topology) {
+    let network = match network::Network::new(batch_size, &topology, &activations) {
         Ok(net) => net,
         Err(e) => {
             eprintln!("Failed to create network: {}", e);
@@ -67,7 +65,6 @@ async fn main() {
                 &network.device
             );
             
-            // Train with your existing train method (uses MSE loss)
             network.train(&inputs_gpu, &labels_gpu);
             
             if batch_idx % 100 == 0 {
