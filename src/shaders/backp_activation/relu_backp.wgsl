@@ -16,6 +16,5 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let total = params.batch_size * params.layer_size;
     if (idx >= total) { return; }
 
-    // ReLU derivative
     dz_out[idx] = select(0., dz_in[idx], z[idx] > 0.0);
 }

@@ -22,5 +22,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let i = id.x;
     if (i < arrayLength(&output)) {
         let x = input[i] + bias[i%params.layer_size];
-        output[i] = 1/(1+exp(-x))
+        output[i] = 1/(1+exp(-x));
+    }
 }
