@@ -1,6 +1,6 @@
 #![allow(dead_code, unused)]
 
-use NeuralNetwork::{activation::{self, ActivationType}, network, tensor};
+use NeuralNetwork::{activation::{self, ActivationType}, network, tensor, loss::LossType};
 mod mnist;
 mod download_mnist;
 use std::time::{Instant, Duration};
@@ -8,6 +8,8 @@ use std::time::{Instant, Duration};
 
 #[tokio::main]
 async fn main() {
+
+
     // Download MNIST if needed
     println!("Downloading MNIST data...");
     if let Err(e) = download_mnist::download_mnist().await {
@@ -29,13 +31,14 @@ async fn main() {
              mnist_data.train_labels.len() / 10, 
              mnist_data.test_labels.len() / 10);
     
-    // Create network for MNIST (784 inputs, 10 outputs)
-    let batch_size = 32; 
+    let network_start = Instant::now();
+
+    let batch_size = 64; 
     let topology = [784, 128, 64, 10];
-    let activations = [ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1)];
+    let activations = [ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::LeakyReLU(0.1), ActivationType::SoftMax];
     
     println!("Creating network with topology: {:?}", topology);
-    let network = match network::Network::new(batch_size, &topology, &activations) {
+    let network = match network::Network::new(batch_size, &topology, &activations, LossType::CrossEntropy) {
         Ok(net) => net,
         Err(e) => {
             eprintln!("Failed to create network: {}", e);
@@ -44,7 +47,7 @@ async fn main() {
     };
     
     // Training parameters
-    let epochs = 200;
+    let epochs = 20000;
     let batches_per_epoch = (mnist_data.train_labels.len() / 10) / batch_size as usize;
     
     println!("Starting training for {} epochs ({} batches per epoch)...", 
@@ -72,14 +75,15 @@ async fn main() {
                          epoch + 1, batch_idx, batches_per_epoch);
 
                 
-                /*let output = network.test(&inputs_gpu);
-                println!("{:?}", output);*/
             }
         }
         
+
+        let epoch_duration = epoch_start.elapsed();
+
         // Test accuracy after epoch
         println!("  Testing accuracy...");
-        let test_batches = 50; // Test on a subset for speed
+        let test_batches = 50;
         let mut correct = 0;
         let mut total = 0;
         
@@ -120,21 +124,69 @@ async fn main() {
             }
         }
         
-        let accuracy = correct as f32 / total as f32;
-        if accuracy > best_accuracy {
-            best_accuracy = accuracy;
+        let test_accuracy = correct as f32 / total as f32;
+        if test_accuracy > best_accuracy {
+            best_accuracy = test_accuracy;
+        }
+
+        if epoch%20==0{
+            correct = 0;
+            total = 0;
+            for train_batch in 0..batches_per_epoch {
+                let (inputs_gpu, labels_gpu) = mnist_data.create_gpu_batch(
+                    batch_size as usize,
+                    train_batch,
+                    true,
+                    &network.device
+                );
+                
+                let predictions = network.test(&inputs_gpu);
+                
+                // Get actual labels for this batch
+                let label_indices = mnist_data.get_label_indices(
+                    batch_size as usize,
+                    train_batch,
+                    true
+                );
+                
+                // Check predictions
+                for i in 0..batch_size as usize {
+                    let mut max_val = -1.0;
+                    let mut predicted_class = 0;
+                    
+                    for j in 0..10 {
+                        let val = predictions[i * 10 + j];
+                        if val > max_val {
+                            max_val = val;
+                            predicted_class = j;
+                        }
+                    }
+                    
+                    if predicted_class == label_indices[i] as usize {
+                        correct += 1;
+                    }
+                    total += 1;
+                }
+            }
+            
+            let train_accuracy = correct as f32 / total as f32;
+            
+            println!("Epoch {} completed in {:?}, Test Accuracy: {:.2}% (Best: {:.2}%) Train Accuracy: {:.2}%",
+                    epoch + 1, epoch_duration, test_accuracy * 100.0, best_accuracy * 100.0, train_accuracy * 100.0);
+        } else {
+            println!("Epoch {} completed in {:?}, Test Accuracy: {:.2}% (Best: {:.2}%)",
+                    epoch + 1, epoch_duration, test_accuracy * 100.0, best_accuracy * 100.0);
         }
         
-        let epoch_duration = epoch_start.elapsed();
-        println!("Epoch {} completed in {:?}, Test Accuracy: {:.2}% (Best: {:.2}%)",
-                 epoch + 1, epoch_duration, accuracy * 100.0, best_accuracy * 100.0);
         
         // Early stopping if accuracy is good
-        if accuracy > 0.95 && epoch >= 3 {
+        if test_accuracy > 0.95 && epoch >= 3 {
             println!("Good accuracy achieved, stopping early.");
             break;
         }
     }
+
+    println!("Training completed in {:?}", network_start.elapsed());
     
     // Final evaluation
     println!("\nFinal evaluation on 1000 test samples:");
@@ -174,6 +226,8 @@ async fn main() {
             
             if predicted_class == label_indices[j] as usize {
                 correct += 1;
+            } else {
+                println!("Expected {} got {:?}", label_indices[j], &predictions[j * 10 .. j*10+10]);
             }
         }
     }

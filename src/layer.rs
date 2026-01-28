@@ -36,8 +36,6 @@ pub enum NNLayer {
         multiplication_bind_group_layout: wgpu::BindGroupLayout,
         activation_bind_group_layout: wgpu::BindGroupLayout,
         backp_activation_bind_group_layout: wgpu::BindGroupLayout,
-        back_weight_bias_bind_group_layout: wgpu::BindGroupLayout,
-        apply_bind_group_layout: wgpu::BindGroupLayout,
     }
 }
 
@@ -52,8 +50,6 @@ impl NNLayer {
         // Create bind group layouts
         let multiplication_bind_group_layout = utils::create_multiplication_bind_group_layout(device);
         let activation_bind_group_layout = utils::create_activation_bind_group_layout(device);
-        let back_weight_bias_bind_group_layout = utils::create_back_weight_bias_bind_group_layout(device);
-        let apply_bind_group_layout = utils::create_apply_bind_group_layout(device);
         let backp_activation_bind_group_layout = activation_type.backp_bind_group_layout(device); 
         
         // Create uniform buffers
@@ -106,9 +102,7 @@ impl NNLayer {
             delta_biases,
             multiplication_bind_group_layout,
             activation_bind_group_layout,
-            back_weight_bias_bind_group_layout,
             backp_activation_bind_group_layout,
-            apply_bind_group_layout,
         }
     }
     
@@ -257,7 +251,6 @@ impl NNLayer {
                 prev_size,
                 batch_size,
                 weights,
-                activation_bind_group_layout,
                 backp_activation_bind_group_layout,
                 activation_params_buffer,
                 del_z,

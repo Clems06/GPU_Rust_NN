@@ -9,6 +9,7 @@ pub enum ActivationType {
     Sigmoid,
     Tanh,
     LeakyReLU(f32),
+    SoftMax,
 }
 
 
@@ -52,6 +53,7 @@ impl ActivationType {
             Self::Sigmoid => include_str!("shaders/activation_and_bias/sigmoid.wgsl"),
             Self::Tanh => include_str!("shaders/activation_and_bias/tanh.wgsl"),
             Self::LeakyReLU(_) => include_str!("shaders/activation_and_bias/leaky_relu.wgsl"),
+            Self::SoftMax => include_str!("shaders/activation_and_bias/softmax.wgsl"),
         }
     }
     
@@ -61,6 +63,7 @@ impl ActivationType {
             Self::Sigmoid => include_str!("shaders/backp_activation/sigmoid_backp.wgsl"),
             Self::Tanh => include_str!("shaders/backp_activation/tanh_backp.wgsl"),
             Self::LeakyReLU(_) => include_str!("shaders/backp_activation/leaky_relu_backp.wgsl"),
+            Self::SoftMax => include_str!("shaders/backp_activation/softmax.wgsl"),
         }
     }
     
@@ -173,6 +176,31 @@ impl ActivationType {
                                                                             },
                                                                             count: None,}],
                                     label: None,}) },
+
+            Self::SoftMax => { device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                                    entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
+                                                                            visibility: wgpu::ShaderStages::COMPUTE,
+                                                                            ty: non_write_storage_binding_type,
+                                                                            count: None,},
+                                                wgpu::BindGroupLayoutEntry { binding: 1, 
+                                                                            visibility: wgpu::ShaderStages::COMPUTE,
+                                                                            ty: non_write_storage_binding_type,
+                                                                            count: None,},
+                                                wgpu::BindGroupLayoutEntry { binding: 2, 
+                                                                            visibility: wgpu::ShaderStages::COMPUTE,
+                                                                            ty: write_storage_binding_type,
+                                                                            count: None,},
+                                                wgpu::BindGroupLayoutEntry { binding: 3, 
+                                                                            visibility: wgpu::ShaderStages::COMPUTE,
+                                                                            ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Uniform,
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                            count: None,}],
+                                    label: None,}) },
+
+                        
         }
     }
 
@@ -257,6 +285,29 @@ impl ActivationType {
                                                                         count: None,}],
                                 label: None,})},
             Self::LeakyReLU(_) => {device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                                entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: non_write_storage_binding_type,
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 1, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: non_write_storage_binding_type,
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 2, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: write_storage_binding_type,
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 3, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                            ty: wgpu::BufferBindingType::Uniform,
+                                                                            has_dynamic_offset: false,
+                                                                            min_binding_size: None,
+                                                                        },
+                                                                        count: None,}],
+                                label: None,})},
+            
+            Self::SoftMax => {device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                                 entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
                                                                         visibility: wgpu::ShaderStages::COMPUTE,
                                                                         ty: non_write_storage_binding_type,

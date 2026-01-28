@@ -4,6 +4,7 @@ use crate::utils::create_pipeline;
 use crate::activation::ActivationType;
 use std::sync::Arc;
 use crate::pipeline::PipelineCache;
+use crate::loss::LossType;
 
 pub struct Network {
     layers: Vec<NNLayer>,
@@ -11,11 +12,12 @@ pub struct Network {
     pub device: Arc<wgpu::Device>,
     queue: wgpu::Queue,
     loss_pipeline: wgpu::ComputePipeline,
+    loss_type: LossType,
     pipeline_cache: PipelineCache,
 }
 
 impl Network {
-    pub fn new(batch_size: u32, topology: &[u32], activations: &[ActivationType]) -> anyhow::Result<Self>{
+    pub fn new(batch_size: u32, topology: &[u32], activations: &[ActivationType], loss: LossType) -> anyhow::Result<Self>{
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
             ..Default::default()
@@ -40,36 +42,26 @@ impl Network {
 
         let mut layers = Vec::new();
         for i in 1..topology.len() {
+
             let activation = activations.get(i - 1).copied().unwrap_or(ActivationType::ReLU);
+
+            if activation==ActivationType::SoftMax {
+                if i != topology.len()-1 { panic!("Activation SoftMax only allowed in last layer"); }
+                else if loss != LossType::CrossEntropy { panic!("Activation SoftMax requires CrossEntropy loss");}
+            } else if i == topology.len()-1 && loss != LossType::CrossEntropy { panic!("CrossEntropy loss requires SoftMax activation in last layer");}
+
+            
+
             layers.push(NNLayer::new(&device, topology[i as usize], topology[(i-1) as usize], batch_size, activation,));
         }
 
-        let loss_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
-                                                        visibility: wgpu::ShaderStages::COMPUTE,
-                                                        ty: wgpu::BindingType::Buffer {
-                                                            ty: wgpu::BufferBindingType::Storage { read_only: (false) },
-                                                            has_dynamic_offset: false,
-                                                            min_binding_size: None,
-                                                        },
-                                                        count: None,},
-                            wgpu::BindGroupLayoutEntry { binding: 1, 
-                                                        visibility: wgpu::ShaderStages::COMPUTE,
-                                                        ty: wgpu::BindingType::Buffer {
-                                                            ty: wgpu::BufferBindingType::Storage { read_only: (true) },
-                                                            has_dynamic_offset: false,
-                                                            min_binding_size: None,
-                                                        },
-                                                        count: None,}],
-                label: None,});
-        
-        let loss_pipeline = create_pipeline(&device, include_str!("shaders/loss.wgsl"), &loss_bind_group_layout);
+        let loss_pipeline = loss.get_pipeline(&device);
         
         
         let device_arc = Arc::new(device);
         let pipeline_cache = PipelineCache::new(device_arc.clone());
 
-        Ok(Self{layers, batch_size, device: device_arc, queue, loss_pipeline, pipeline_cache})
+        Ok(Self{layers, batch_size, device: device_arc, queue, loss_pipeline, pipeline_cache, loss_type: loss})
     }
 
     pub fn forward_pass(&self, input: &GpuTensor) -> GpuTensor {
@@ -93,13 +85,7 @@ impl Network {
         self.layers[0].apply_gradient(&self.device, &self.queue, &self.pipeline_cache);
     }
 
-
-    pub fn train(&self, input: &GpuTensor, outputs: &GpuTensor) {
-        let result = self.forward_pass(input);
-
-
-        //println!("Result {:?}", result.read_to_cpu(&self.device, &self.queue));
-
+    pub fn last_layer_gradient(&self, result: GpuTensor, outputs: &GpuTensor) -> GpuTensor {
         let bind_group_layout = self.loss_pipeline.get_bind_group_layout(0);
 
         let bind_group = self.device.create_bind_group(
@@ -134,10 +120,23 @@ impl Network {
         
         self.queue.submit(Some(encoder.finish()));
 
+        result
+    }
+
+
+    pub fn train(&self, input: &GpuTensor, outputs: &GpuTensor) {
+        let result = self.forward_pass(input);
+
+
+        //println!("Result {:?}", result.read_to_cpu(&self.device, &self.queue));
+
+        let gradient = self.last_layer_gradient(result, outputs);
+        
+
         //println!("MSE {:?}", result.read_to_cpu(&self.device, &self.queue));
 
 
-        self.backpropagation(result, input);
+        self.backpropagation(gradient, input);
 
 
     }
