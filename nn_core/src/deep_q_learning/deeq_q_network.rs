@@ -142,6 +142,85 @@ impl DeepQNetwork {
         DeepQNetwork { target_network, network, alpha: 0.1, gamma: 0.99, epsilon: 0.1, max_buffer, batch_size, replay_buffer: VecDeque::with_capacity(max_buffer), target_q_pipeline }
     }
 
+    pub fn load(batch_size: u32, path: impl AsRef<std::path::Path>) -> Self {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        })).expect("Failed to request adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: None,
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        })).expect("Failed to request device");
+        let device = Arc::new(device);
+        
+        let network = Network::load_from_onnx( device.clone(), queue.clone(), batch_size, &path).expect("Cannot build network");
+        let target_network = Network::load_from_onnx( device.clone(), queue.clone(), batch_size, path).expect("Cannot build network");
+
+        let bind_group_layout = network.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                                entries: &[ wgpu::BindGroupLayoutEntry { binding: 0, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Storage { read_only: (false) },
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 1, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Storage { read_only: (false) },
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 2, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Storage { read_only: (true) },
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 3, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Storage { read_only: (true) },
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 4, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                                ty: wgpu::BufferBindingType::Storage { read_only: (true) },
+                                                                                has_dynamic_offset: false,
+                                                                                min_binding_size: None,
+                                                                            },
+                                                                        count: None,},
+                                            wgpu::BindGroupLayoutEntry { binding: 5, 
+                                                                        visibility: wgpu::ShaderStages::COMPUTE,
+                                                                        ty: wgpu::BindingType::Buffer {
+                                                                            ty: wgpu::BufferBindingType::Uniform,
+                                                                            has_dynamic_offset: false,
+                                                                            min_binding_size: None,
+                                                                        },
+                                                                        count: None,}],
+                                label: None,});
+
+        let target_q_pipeline = create_pipeline(&network.device, include_str!("target_q_pipeline.wgsl"), &bind_group_layout);
+        let max_buffer = 1000;
+        DeepQNetwork { target_network, network, alpha: 0.1, gamma: 0.99, epsilon: 0.1, max_buffer, batch_size, replay_buffer: VecDeque::with_capacity(max_buffer), target_q_pipeline }
+
+
+    }
+
     pub fn choose_action(&self, inputs: Vec<f32>) -> u32 {
         let last_layer_size = *self.network.topology.last().unwrap();
         if random::<f32>() < self.epsilon {
@@ -296,6 +375,10 @@ impl DeepQNetwork {
 
     pub fn update_target(&mut self) {
         self.network.copy_weights_to(&self.target_network, &self.network.device, &self.network.queue);
+    }
+
+    pub fn save_to_onnx(&self, path: impl AsRef<std::path::Path>) {
+        let _ = self.network.save_to_onnx(path);
     }
 
 }

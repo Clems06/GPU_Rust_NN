@@ -59,6 +59,10 @@ fn main() {
         if net.buffer_len() >= net.batch_size() {
             net.train();
         }
+
+        if episode%100 == 0 {
+            net.save_to_onnx("test.onnx");
+        }
     }
 
     println!("Done.");

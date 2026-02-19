@@ -521,4 +521,21 @@ impl NNLayer {
             _ => panic!("Layer types do not match for weight copy"),
         }
     }
+
+    pub fn upload_weights(&self, weights: &[f32], biases: &[f32], queue: &wgpu::Queue) {
+        match self {
+            NNLayer::FullyConnectedLayer { weights: w_buf, biases: b_buf, .. } => {
+                queue.write_buffer(
+                    &w_buf.buffer,
+                    0,
+                    bytemuck::cast_slice(weights),
+                );
+                queue.write_buffer(
+                    &b_buf.buffer,
+                    0,
+                    bytemuck::cast_slice(biases),
+                );
+            }
+        }
+    }
 }

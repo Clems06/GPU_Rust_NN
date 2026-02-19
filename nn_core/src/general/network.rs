@@ -7,12 +7,12 @@ use super::loss::LossType;
 
 #[derive(Clone)]
 pub struct Network {
-    layers: Vec<NNLayer>,
+    pub(crate) layers: Vec<NNLayer>,
     batch_size: u32,
     pub device: Arc<wgpu::Device>,
     pub queue: wgpu::Queue,
     loss_pipeline: wgpu::ComputePipeline,
-    loss_type: LossType,
+    pub(crate) loss_type: LossType,
     pipeline_cache: PipelineCache,
     pub topology: Vec<u32>
 }
